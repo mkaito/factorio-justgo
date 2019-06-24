@@ -1,3 +1,4 @@
+debug = false
 
 local acceptedTypes = {
 	car = true,
@@ -6,12 +7,13 @@ local acceptedTypes = {
 local filterCache = {}
 local sPickupKey = "folk-justgo-pickup"
 local pickup = setmetatable({}, {
-	__index = function(self, id)
+    __index = function(self, id)
 		local v = settings.get_player_settings(game.players[id])[sPickupKey].value
 		rawset(self, id, v)
 		return v
 	end
 })
+
 script.on_event(defines.events.on_runtime_mod_setting_changed, function(event)
 	if not event or not event.setting then return end
 	if event.setting == sPickupKey then
@@ -24,18 +26,19 @@ local function onBuildEntity(event)
 	if not e or not e.valid or not acceptedTypes[e.type] then return end
 	local player = game.players[event.player_index]
 	if player.driving or (player.vehicle ~= nil and player.vehicle.valid) then return end
-
-	local inv = player.get_inventory(defines.inventory.player_quickbar)
-	if not inv or not inv.valid or not inv.is_filtered() then return end
-
-	-- We check for inv.is_filtered first because I presume it's cheaper than can_reach_entity
 	if not player.can_reach_entity(e) then return end
+
+  -- For special cases where the item and entity name are not equal
+  -- Hovercrafts mod
+  local iemap = {}
+  iemap["hcraft-item"] = "hcraft-entity"
+  iemap["mcraft-item"] = "mcraft-entity"
 
 	local playerIndex = event.player_index
 	if not filterCache[playerIndex] then filterCache[playerIndex] = {} end
 	if filterCache[playerIndex] and filterCache[playerIndex][e.name] then
-		local f = inv.get_filter(filterCache[playerIndex][e.name])
-		if type(f) == "string" and f == e.name then
+		local f = player.get_quick_bar_slot(filterCache[playerIndex][e.name])
+		if (f) and type(f.name) == "string" and ( f.name == e.name or iemap[f.name] == e.name ) then
 			if not global.ent then global.ent = {} end
 			player.teleport(e.position)
 			player.driving = true
@@ -45,9 +48,10 @@ local function onBuildEntity(event)
 			filterCache[playerIndex][e.name] = nil
 		end
 	end
-	for i = 1, #inv do
-		local f = inv.get_filter(i)
-		if type(f) == "string" and f == e.name then
+
+	for i = 1, 100 do
+		local f = player.get_quick_bar_slot(i)
+    if (f) and type(f.name) == "string" and ( f.name == e.name or iemap[f.name] == e.name ) then
 			if not global.ent then global.ent = {} end
 			filterCache[playerIndex][e.name] = i
 			player.teleport(e.position)
@@ -66,10 +70,25 @@ local function driving(event)
 	if not player or not player.valid or player.driving or player.vehicle then return end
 	if not pickup[event.player_index] then return end
 
-	-- I'm not even sure we need to check .can_reach. But just to be sure, we do.
-	if global.ent[player.index].valid and global.ent[player.index].minable and player.can_reach_entity(global.ent[player.index]) then
+	if global.ent[player.index].valid and global.ent[player.index].minable then
 		player.mine_entity(global.ent[player.index])
 	end
 	global.ent[player.index] = nil
 end
 script.on_event(defines.events.on_player_driving_changed_state, driving)
+
+-- Debug helper, prints anything to console for all players
+function printAll(text, bool)
+	if (debug or bool) then
+		local text2 = ""
+		if type(text) == "table" then text2 = serpent.block(text, {comment=false})
+			for i in pairs (game.players) do
+				game.players[i].print(text2)
+			end
+		else
+			for i in pairs (game.players) do
+				game.players[i].print(text)
+			end
+		end
+	end
+end
